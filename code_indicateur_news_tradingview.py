@@ -5,10 +5,14 @@ Spyder Editor
 This is a temporary script file.
 """
 
+from flask import Flask, request, jsonify
 import requests
 from datetime import datetime, timedelta
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import nltk
+
+# Initialisation de Flask
+app = Flask(__name__)
 
 # Téléchargement des données nécessaires pour VADER
 nltk.download('vader_lexicon')
@@ -16,103 +20,63 @@ nltk.download('vader_lexicon')
 # Initialisation de l'analyseur de sentiment VADER
 sia = SentimentIntensityAnalyzer()
 
-# Clé API fournie
-api_key = 'cadbaa550b604aa0b674bfd03f80817a'
-keyword = 'tesla'  # Mot-clé pour rechercher les articles
-yesterday_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-today_date = datetime.now().strftime('%Y-%m-%d')  # Date actuelle formatée
-
-# URL pour récupérer les articles du jour sur Tesla
-url = (f'https://newsapi.org/v2/everything?q={keyword}&from=2024-10-01'
-       f'&to={today_date}&sortBy=publishedAt&language=en&apiKey={api_key}')
-#url = (f'https://newsapi.org/v2/everything?q={keyword}&from={today_date}'
-#       f'&to={today_date}&sortBy=publishedAt&language=en&apiKey={api_key}')
-#url = (f'https://newsapi.org/v2/everything?qInTitle={keyword}&from={today_date}'
-#       f'&to={today_date}&sortBy=publishedAt&apiKey={api_key}')
-
-
-# Effectuer la requête HTTP à l'API NewsAPI
-response = requests.get(url)
-
-# Vérifier le statut de la réponse
-# if response.status_code == 200:
-#     news_data = response.json()
-
-#     # Vérifier s'il y a des articles dans la réponse
-#     if 'articles' in news_data and len(news_data['articles']) > 0:
-#         articles = news_data['articles']
-
-#         # Filtrer manuellement les articles dont le titre contient "Tesla"
-#         filtered_articles = [article for article in articles if article['title'] and 'tesla' in article['title'].lower()]
-
-#         if filtered_articles:
-#             print(f"Articles publiés depuis 3 jours avec '{keyword}' dans le titre (en anglais) :")
-#             for article in filtered_articles:
-#                 print(f"Titre: {article['title']}")
-#                 print(f"Publié à: {article['publishedAt']}")
-#                 print(f"Source: {article['source']['name']}")
-#                 print(f"Lien: {article['url']}\n")
-#         else:
-#             print(f"Aucun article trouvé avec '{keyword}' dans le titre.")
-#     else:
-#         print(f"Aucun article trouvé pour '{keyword}'.")
-# else:
-#     print(f"Erreur lors de la récupération des articles : {response.status_code}")
-    
-    
-# Vérifier le statut de la réponse
-if response.status_code == 200:
-    news_data = response.json()
-
-    # Vérifier s'il y a des articles dans la réponse
-    if 'articles' in news_data and len(news_data['articles']) > 0:
-        articles = news_data['articles']
-
-        # Filtrer manuellement les articles dont le titre contient "Tesla"
-        filtered_articles = [article for article in articles if article['title'] and 'tesla' in article['title'].lower()]
-
-        if filtered_articles:
-            print(f"Articles publiés depuis 3 jours avec '{keyword}' dans le titre (en anglais) :")
+# Webhook route
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.json
+    if data:
+        # Extraire les données pertinentes (par ex. le symbole de l'action comme 'TSLA')
+        keyword = data.get('ticker', 'tesla').lower()
+        
+        # Récupérer les articles pour ce symbole
+        api_key = 'ta_cle_newsapi'
+        today_date = datetime.now().strftime('%Y-%m-%d')
+        yesterday_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+        
+        # URL pour récupérer les articles du jour
+        url = (f'https://newsapi.org/v2/everything?q={keyword}&from={yesterday_date}'
+               f'&to={today_date}&sortBy=publishedAt&language=en&apiKey={api_key}')
+        
+        response = requests.get(url)
+        
+        if response.status_code == 200:
+            news_data = response.json()
             
-            total_sentiment = 0
-            for article in filtered_articles:
-                titre = article['title']
-                sentiment = sia.polarity_scores(titre)  # Analyse du sentiment du titre
-                score_sentiment = sentiment['compound']  # Score global du sentiment (positif/négatif)
-                total_sentiment += score_sentiment
-
-                # Affichage des résultats d'analyse de sentiment
-                if score_sentiment >= 0.05:
-                    couleur = "Vert (bonne nouvelle)"
-                elif score_sentiment <= -0.05:
-                    couleur = "Rouge (mauvaise nouvelle)"
+            if 'articles' in news_data and len(news_data['articles']) > 0:
+                articles = news_data['articles']
+                filtered_articles = [article for article in articles if 'title' in article and keyword in article['title'].lower()]
+                
+                if filtered_articles:
+                    total_sentiment = 0
+                    for article in filtered_articles:
+                        titre = article['title']
+                        sentiment = sia.polarity_scores(titre)  # Analyse du sentiment du titre
+                        score_sentiment = sentiment['compound']
+                        total_sentiment += score_sentiment
+                    
+                    # Calcul de la moyenne du sentiment
+                    moyenne_sentiment = total_sentiment / len(filtered_articles)
+                    
+                    # Déterminer la tendance
+                    if moyenne_sentiment >= 0.05:
+                        tendance = "positive"
+                    elif moyenne_sentiment <= -0.05:
+                        tendance = "negative"
+                    else:
+                        tendance = "neutre"
+                    
+                    # Retourner la tendance comme réponse
+                    return jsonify({"status": "success", "tendance": tendance, "score": moyenne_sentiment}), 200
+                
                 else:
-                    couleur = "Bleu (neutre)"
-
-                print(f"Titre: {titre}")
-                print(f"Sentiment: {couleur}")
-                print(f"Score: {score_sentiment}")
-                print(f"Publié à: {article['publishedAt']}")
-                print(f"Source: {article['source']['name']}")
-                print(f"Lien: {article['url']}\n")
-                
-            # Calcul de la moyenne du sentiment
-            moyenne_sentiment = total_sentiment / len(filtered_articles)
-            
-            # Affichage de la tendance du jour
-            if moyenne_sentiment >= 0.05:
-                tendance = "Tendance générale : Positive"
-            elif moyenne_sentiment <= -0.05:
-                tendance = "Tendance générale : Négative"
+                    return jsonify({"status": "no_articles", "message": "Aucun article pertinent trouvé"}), 200
             else:
-                tendance = "Tendance générale : Neutre"
-                
-            print(tendance)
-            print(f"Moyenne des scores de sentiment : {moyenne_sentiment}")
-            
+                return jsonify({"status": "no_articles", "message": "Aucun article trouvé pour la période donnée"}), 200
         else:
-            print(f"Aucun article trouvé avec '{keyword}' dans le titre.")
+            return jsonify({"status": "error", "message": f"Erreur API: {response.status_code}"}), 500
     else:
-        print(f"Aucun article trouvé pour '{keyword}'.")
-else:
-    print(f"Erreur lors de la récupération des articles : {response.status_code}")
+        return jsonify({"status": "error", "message": "Données invalides reçues"}), 400
+
+# Lancer l'application Flask
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
